@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UTF-8 Filename Sanitizer</title>
+    <!-- Google Font for a clean, minimal look -->
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@400;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #121212;
+            --surface-color: #1e1e1e;
+            --text-primary: #e0e0e0;
+            --text-secondary: #a0a0a0;
+            --accent-color: #4caf50;
+            --danger-color: #ff5252;
+            --border-color: #333;
+            --input-bg: #252525;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 600px;
+            background-color: var(--surface-color);
+            padding: 2rem;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            border: 1px solid var(--border-color);
+        }
+
+        h1 {
+            font-size: 1.25rem;
+            margin-bottom: 1.5rem;
+            color: var(--text-secondary);
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .input-group {
+            margin-bottom: 1.5rem;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+
+        textarea, input[type="text"] {
+            width: 100%;
+            background-color: var(--input-bg);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            padding: 12px;
+            border-radius: 6px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.95rem;
+            transition: border-color 0.2s;
+            outline: none;
+        }
+
+        textarea:focus, input[type="text"]:focus {
+            border-color: var(--accent-color);
+        }
+
+        textarea {
+            resize: vertical;
+            min-height: 80px;
+        }
+
+        /* Read-only output styling */
+        .output-field {
+            cursor: pointer;
+        }
+        
+        .stats {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 0.5rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+        }
+
+        .stat-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .stat-value {
+            font-weight: 700;
+        }
+
+        /* Limit Indicator Styles */
+        .limit-ok {
+            color: var(--accent-color);
+        }
+
+        .limit-danger {
+            color: var(--danger-color);
+            animation: pulse 2s infinite;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .warning-msg {
+            color: var(--danger-color);
+            font-size: 0.75rem;
+            margin-top: 4px;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.7; }
+            100% { opacity: 1; }
+        }
+
+        /* Copy tooltip */
+        .copy-hint {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            margin-top: 4px;
+            text-align: right;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>Filename Sanitizer</h1>
+
+        <!-- Input Section -->
+        <div class="input-group">
+            <label for="rawInput">Original String</label>
+            <textarea id="rawInput" placeholder="Type or paste your string here..."></textarea>
+        </div>
+
+        <!-- Output Section -->
+        <div class="input-group">
+            <label for="cleanOutput">Sanitized (Windows & Linux Safe)</label>
+            <input type="text" id="cleanOutput" class="output-field" readonly>
+            <div id="copyHint" class="copy-hint">Click box to copy</div>
+        </div>
+
+        <!-- Statistics Section -->
+        <div class="stats">
+            <div class="stat-item">
+                <span>Chars:</span>
+                <span id="charCount" class="stat-value">0</span>
+            </div>
+            <div class="stat-item">
+                <span>Bytes (UTF-8):</span>
+                <span id="byteCount" class="stat-value limit-ok">0</span>
+                <span>/ 255</span>
+            </div>
+        </div>
+        <div id="limitWarning" class="warning-msg hidden">⚠️ Exceeds 255 bytes (File system limit)</div>
+    </div>
+
+    <script>
+        const rawInput = document.getElementById('rawInput');
+        const cleanOutput = document.getElementById('cleanOutput');
+        const charCountEl = document.getElementById('charCount');
+        const byteCountEl = document.getElementById('byteCount');
+        const limitWarning = document.getElementById('limitWarning');
+        const copyHint = document.getElementById('copyHint');
+
+        // TextEncoder is the modern, correct way to count UTF-8 bytes in JS
+        const encoder = new TextEncoder();
+
+        function sanitizeString(str) {
+            // Regex explanation:
+            // \/ : forward slash (Linux/Mac separator)
+            // < > : " / \ | ? * : Windows reserved characters
+            // \x00-\x1F : Control characters (0-31)
+            const invalidChars = /[<>:"/\\|?*\x00-\x1F]/g;
+            
+            // Replace invalid chars with an underscore
+            return str.replace(invalidChars, '_');
+        }
+
+        function updateStats() {
+            const rawText = rawInput.value;
+            const sanitizedText = sanitizeString(rawText);
+
+            // Update Output Input
+            cleanOutput.value = sanitizedText;
+
+            // Update Counts based on the SANITIZED version (as that is the potential filename)
+            const charLen = sanitizedText.length;
+            const byteLen = encoder.encode(sanitizedText).length;
+
+            charCountEl.textContent = charLen;
+            byteCountEl.textContent = byteLen;
+
+            // Check Limits
+            if (byteLen > 255) {
+                byteCountEl.classList.remove('limit-ok');
+                byteCountEl.classList.add('limit-danger');
+                limitWarning.classList.remove('hidden');
+                cleanOutput.style.borderColor = 'var(--danger-color)';
+            } else {
+                byteCountEl.classList.remove('limit-danger');
+                byteCountEl.classList.add('limit-ok');
+                limitWarning.classList.add('hidden');
+                cleanOutput.style.borderColor = 'var(--border-color)';
+            }
+        }
+
+        // Real-time listener
+        rawInput.addEventListener('input', updateStats);
+
+        // Copy to clipboard functionality
+        cleanOutput.addEventListener('click', () => {
+            if(!cleanOutput.value) return;
+            
+            cleanOutput.select();
+            document.execCommand('copy'); // Fallback for older browsers
+            
+            // Visual feedback
+            const originalText = copyHint.innerText;
+            copyHint.innerText = "Copied to clipboard!";
+            copyHint.style.color = "var(--accent-color)";
+            
+            setTimeout(() => {
+                copyHint.innerText = originalText;
+                copyHint.style.color = "var(--text-secondary)";
+            }, 1500);
+        });
+    </script>
+</body>
+</html>
